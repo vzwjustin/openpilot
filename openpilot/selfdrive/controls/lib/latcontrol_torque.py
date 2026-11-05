@@ -76,6 +76,10 @@ class LatControlTorque(LatControl):
     lookahead_idx = int(np.clip(-delay_frames + self.lookahead_frames, -self.lat_accel_request_buffer_len+1, -2))
     raw_lateral_jerk = (self.lat_accel_request_buffer[lookahead_idx+1] - self.lat_accel_request_buffer[lookahead_idx-1]) / (2 * self.dt)
     desired_lateral_jerk = self.jerk_filter.update(raw_lateral_jerk)
+    if not math.isfinite(desired_lateral_jerk):
+      # this filter is never reset, so one non-finite request would otherwise disable steering for the rest of the drive
+      self.jerk_filter.x = 0.0
+      desired_lateral_jerk = 0.0
     gravity_adjusted_future_lateral_accel = future_desired_lateral_accel - roll_compensation
     ff = gravity_adjusted_future_lateral_accel
     # latAccelOffset corrects roll compensation bias from device roll misalignment relative to car roll

@@ -46,6 +46,7 @@ class Controls:
     self.steer_limited_by_safety = False
     self.curvature = 0.0
     self.desired_curvature = 0.0
+    self.controls_finite = True
 
     self.pose_calibrator = PoseCalibrator()
     self.calibrated_pose: Pose | None = None
@@ -124,6 +125,14 @@ class Controls:
       new_desired_curvature = self.sm['lateralManeuverPlan'].desiredCurvature if CC.latActive else self.curvature
     else:
       new_desired_curvature = model_v2.action.desiredCurvature if CC.latActive else self.curvature
+
+    # clip_curvature rate limits against the previous request, so a single non-finite value would latch forever and
+    # silently disable lateral control for the rest of the drive. Hold the last good request and flag controlsState invalid.
+    lateral_request_finite = math.isfinite(new_desired_curvature)
+    if not math.isfinite(self.desired_curvature):
+      self.desired_curvature = self.curvature if math.isfinite(self.curvature) else 0.0
+    if not lateral_request_finite:
+      new_desired_curvature = self.desired_curvature
     self.desired_curvature, curvature_limited = clip_curvature(CS.vEgo, self.desired_curvature, new_desired_curvature, lp.roll)
     lat_delay = self.sm["lateralDelay"].lateralDelay + LAT_SMOOTH_SECONDS
 
@@ -137,6 +146,7 @@ class Controls:
     else:
       actuators.steeringAngleDeg = float(lateral_output)
     # Ensure no NaNs/Infs
+    actuators_finite = True
     for p in ACTUATOR_FIELDS:
       attr = getattr(actuators, p)
       if not isinstance(attr, Number):
@@ -145,6 +155,10 @@ class Controls:
       if not math.isfinite(attr):
         cloudlog.error(f"actuators.{p} not finite {actuators.to_dict()}")
         setattr(actuators, p, 0.0)
+        actuators_finite = False
+
+    # a zeroed actuator is not control: invalidate controlsState so selfdrived alerts the driver and disengages
+    self.controls_finite = lateral_request_finite and actuators_finite
 
     return CC, lac_log
 
@@ -189,7 +203,7 @@ class Controls:
 
     # controlsState
     dat = messaging.new_message('controlsState')
-    dat.valid = CS.canValid
+    dat.valid = CS.canValid and self.controls_finite
     cs = dat.controlsState
 
     cs.curvature = self.curvature

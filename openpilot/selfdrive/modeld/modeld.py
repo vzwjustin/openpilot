@@ -452,10 +452,16 @@ def main(demo=False):
       if not sm['carControl'].latActive:
         prev_action.desiredCurvature = sm['controlsState'].curvature
       action = get_action_from_model(model_output, prev_action, lat_action_t, long_action_t, v_ego)
+      # prev_action feeds back into the smoothing every frame, so one non-finite output would latch while engaged.
+      # Hold the last good action and publish modelV2 invalid so selfdrived alerts the driver and disengages.
+      action_finite = math.isfinite(action.desiredCurvature) and math.isfinite(action.desiredAcceleration)
+      if not action_finite:
+        cloudlog.error("model action not finite, holding previous action")
+        action = prev_action
       prev_action = action
       fill_model_msg(modelv2_send, model_output, action,
                      publish_state, meta_main.frame_id, meta_extra.frame_id, frame_id,
-                     frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, extrinsics_calibration_seen)
+                     frame_drop_ratio, meta_main.timestamp_eof, model_execution_time, extrinsics_calibration_seen and action_finite)
       modelv2_send.modelV2.big = model.chestnut
 
       desire_state = modelv2_send.modelV2.meta.desireState
