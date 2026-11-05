@@ -7,6 +7,7 @@ from openpilot.common.parameterized import parameterized
 from opendbc.car.car_helpers import interfaces
 from opendbc.car.toyota.values import CAR as TOYOTA
 from opendbc.car.nissan.values import CAR as NISSAN
+from opendbc.car.ford.values import CAR as FORD
 from openpilot.selfdrive.controls import controlsd
 
 SUB_SERVICES = ['lateralDelay', 'vehicleParameters', 'lateralTorqueParameters', 'modelV2', 'selfdriveState',
@@ -65,8 +66,10 @@ class TestControlsdNonFinite(OpenpilotTestCase):
     controls.publish(CC, lac_log)
     return CC, controls.pm.sent['controlsState']
 
-  @parameterized.expand([(TOYOTA.TOYOTA_RAV4,), (NISSAN.NISSAN_LEAF,)])
-  def test_non_finite_curvature_does_not_latch(self, car_name):
+  # torque control, angle control, and Ford (angle type, but its carcontroller sends actuators.curvature)
+  @parameterized.expand([(TOYOTA.TOYOTA_RAV4, 'torque'), (NISSAN.NISSAN_LEAF, 'steeringAngleDeg'),
+                         (FORD.FORD_EXPLORER_MK6, 'curvature')])
+  def test_non_finite_curvature_does_not_latch(self, car_name, lateral_actuator):
     controls = self._make_controls(car_name)
 
     for _ in range(100):
@@ -86,5 +89,5 @@ class TestControlsdNonFinite(OpenpilotTestCase):
     assert controls_state.valid
     assert math.isfinite(controls.desired_curvature)
     assert abs(controls.desired_curvature - 0.002) < 1e-4
-    lateral_output = CC.actuators.steeringAngleDeg if car_name == NISSAN.NISSAN_LEAF else CC.actuators.torque
+    lateral_output = getattr(CC.actuators, lateral_actuator)
     assert math.isfinite(lateral_output) and abs(lateral_output) > 1e-3
