@@ -53,6 +53,9 @@ class PIDController:
       i_upperbound = self.i if test_control > self.pos_limit else self.pos_limit
       i_lowerbound = self.i if test_control < self.neg_limit else self.neg_limit
       self.i = np.clip(i, i_lowerbound, i_upperbound)
+      if not np.isfinite(self.i):
+        # some users never reset this integrator (e.g. lateral torque), so one non-finite input must not poison it
+        self.i = 0.0
 
     control = self.p + self.i + self.d + self.f
     self.control = np.clip(control, self.neg_limit, self.pos_limit)

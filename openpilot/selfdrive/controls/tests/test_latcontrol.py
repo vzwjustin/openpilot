@@ -1,3 +1,5 @@
+import math
+
 from openpilot.common.test import OpenpilotTestCase
 from openpilot.common.parameterized import parameterized
 
@@ -48,3 +50,31 @@ class TestLatControl(OpenpilotTestCase):
     for _ in range(1000):
       _, _, lac_log = controller.update(True, CS, VM, params, False, 1, False, 0.2)
     assert lac_log.saturated
+
+  @parameterized.expand([(HONDA.HONDA_CIVIC, LatControlPID), (TOYOTA.TOYOTA_RAV4, LatControlTorque),
+                         (NISSAN.NISSAN_LEAF, LatControlAngle), (GM.CHEVROLET_BOLT_EUV, LatControlTorque),
+                         (VOLKSWAGEN.VOLKSWAGEN_ID4_MK2, LatControlCurvature)])
+  def test_recovers_from_non_finite_request(self, car_name, controller):
+    CarInterface = interfaces[car_name]
+    CP = CarInterface.get_non_essential_params(car_name)
+    CI = CarInterface(CP)
+    VM = VehicleModel(CP)
+
+    controller = controller(CP.as_reader(), CI, DT_CTRL)
+
+    CS = car.CarState.new_message()
+    CS.vEgo = 30
+    CS.steeringPressed = False
+
+    params = log.VehicleParameters.new_message()
+
+    for _ in range(100):
+      controller.update(True, CS, VM, params, False, 0.001, False, 0.2)
+
+    # a single non-finite request must not poison internal state (filters, integrators) for the rest of the drive
+    controller.update(True, CS, VM, params, False, float('nan'), False, 0.2)
+    for _ in range(200):
+      output_torque, output_angle, _ = controller.update(True, CS, VM, params, False, 0.001, False, 0.2)
+    assert math.isfinite(output_torque) and math.isfinite(output_angle)
+    if hasattr(controller, 'pid'):
+      assert math.isfinite(controller.pid.i)
